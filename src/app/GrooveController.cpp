@@ -113,6 +113,7 @@ void GrooveController::setStepsPerBar(int stepsPerBar) {
 
 void GrooveController::setRepeatsBeforeMutation(int repeats) {
     scene_.repeatsBeforeMutation = std::clamp(repeats, 1, 64);
+    pushScene();
 }
 
 void GrooveController::setSwing(float swing) {
@@ -127,6 +128,7 @@ void GrooveController::setMutationEnabled(bool enabled) {
 
 void GrooveController::setMutationAmount(float mutationAmount) {
     scene_.mutationAmount = std::clamp(mutationAmount, 0.0f, 1.0f);
+    pushScene();
 }
 
 void GrooveController::setInstrumentDensity(int instrumentIndex, float density) {
@@ -134,6 +136,7 @@ void GrooveController::setInstrumentDensity(int instrumentIndex, float density) 
         return;
     }
     scene_.instruments[static_cast<std::size_t>(instrumentIndex)].density = std::clamp(density, 0.0f, 1.0f);
+    pushScene();
 }
 
 void GrooveController::setInstrumentSynthEnabled(int instrumentIndex, bool enabled) {

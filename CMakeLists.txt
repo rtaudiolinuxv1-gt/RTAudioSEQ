@@ -13,6 +13,7 @@ find_package(Threads REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets)
 pkg_check_modules(JACK REQUIRED IMPORTED_TARGET jack)
 pkg_check_modules(SNDFILE REQUIRED IMPORTED_TARGET sndfile)
+pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
 
 enable_testing()
 
@@ -20,18 +21,19 @@ set(GROOVE_FORGE_SOURCES
     src/main.cpp
     src/app/GrooveController.cpp
     src/audio/JackEngine.cpp
-    src/dsp/BassVoice.cpp
-    src/dsp/DrumVoice.cpp
+    src/dsp/InternalVoice.cpp
+    src/export/OfflineRenderer.cpp
     src/generation/PatternGenerator.cpp
     src/recording/AudioRecorder.cpp
     src/sample/SampleBuffer.cpp
     src/sample/SampleVoice.cpp
+    src/sf2/SoundFontSynth.cpp
     src/ui/MainWindow.cpp
 )
 
 add_executable(groove_forge ${GROOVE_FORGE_SOURCES})
 target_include_directories(groove_forge PRIVATE src)
-target_link_libraries(groove_forge PRIVATE Qt5::Widgets PkgConfig::JACK PkgConfig::SNDFILE Threads::Threads)
+target_link_libraries(groove_forge PRIVATE Qt5::Widgets PkgConfig::JACK PkgConfig::SNDFILE PkgConfig::FLUIDSYNTH Threads::Threads)
 
 add_executable(pattern_generator_tests
     tests/PatternGeneratorTests.cpp

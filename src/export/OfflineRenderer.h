@@ -3,6 +3,7 @@
 #include <string>
 
 #include "core/GrooveTypes.h"
+#include "sample/SampleBuffer.h"
 
 namespace groove {
 

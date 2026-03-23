@@ -1,6 +1,7 @@
 #include "audio/JackEngine.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace groove {

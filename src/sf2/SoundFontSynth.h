@@ -2,8 +2,8 @@
 
 #include <string>
 
-struct _fluid_settings_t;
-struct _fluid_synth_t;
+typedef struct _fluid_hashtable_t fluid_settings_t;
+typedef struct _fluid_synth_t fluid_synth_t;
 
 namespace groove {
 
@@ -27,8 +27,8 @@ public:
 private:
     void recreate();
 
-    _fluid_settings_t* settings_ = nullptr;
-    _fluid_synth_t* synth_ = nullptr;
+    fluid_settings_t* settings_ = nullptr;
+    fluid_synth_t* synth_ = nullptr;
     double sampleRate_ = 48000.0;
     int soundFontId_ = -1;
     std::string path_;

@@ -17,13 +17,14 @@ bool require(bool condition, const char* message) {
 
 int main() {
     groove::PatternGenerator generator;
-    groove::GrooveScene seedScene;
+    groove::GrooveScene seedScene = groove::makeDefaultScene();
     seedScene.patternBars = 4;
-    seedScene.densities = {0.9f, 0.7f, 0.8f, 0.6f};
+    seedScene.stepsPerBar = 16;
 
     const groove::GrooveScene scene = generator.createScene(seedScene);
-    const auto& snare = scene.tracks[static_cast<int>(groove::TrackId::Snare)];
-    const auto& bass = scene.tracks[static_cast<int>(groove::TrackId::Bass)];
+    const auto& kick = scene.instruments[0];
+    const auto& snare = scene.instruments[1];
+    const auto& bass = scene.instruments[6];
 
     if (!require(snare.steps[4].active, "snare should anchor on bar 1 beat 2")) {
         return EXIT_FAILURE;
@@ -42,15 +43,15 @@ int main() {
     }
 
     const groove::GrooveScene mutated = generator.mutateScene(scene);
-    if (!require(mutated.tracks[static_cast<int>(groove::TrackId::Kick)].steps[0].active,
+    if (!require(mutated.instruments[0].steps[0].active,
             "kick downbeat should survive mutation")) {
         return EXIT_FAILURE;
     }
-    if (!require(mutated.tracks[static_cast<int>(groove::TrackId::Snare)].steps[4].active,
+    if (!require(mutated.instruments[1].steps[4].active,
             "snare backbeat should survive mutation")) {
         return EXIT_FAILURE;
     }
-    if (!require(mutated.tracks[static_cast<int>(groove::TrackId::Snare)].steps[20].active,
+    if (!require(mutated.instruments[1].steps[20].active,
             "snare anchors should survive on later bars too")) {
         return EXIT_FAILURE;
     }

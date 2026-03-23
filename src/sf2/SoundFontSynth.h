@@ -1,11 +1,18 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 typedef struct _fluid_hashtable_t fluid_settings_t;
 typedef struct _fluid_synth_t fluid_synth_t;
 
 namespace groove {
+
+struct SoundFontPreset {
+    std::string name;
+    int bank = 0;
+    int program = 0;
+};
 
 class SoundFontSynth {
 public:
@@ -23,6 +30,7 @@ public:
     void noteOff(int channel, int note);
     void allNotesOff();
     void renderFrame(float& left, float& right);
+    std::vector<SoundFontPreset> presets() const;
 
 private:
     void recreate();

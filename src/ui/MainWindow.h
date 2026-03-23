@@ -17,11 +17,13 @@ class QLabel;
 class QLayout;
 class QLineEdit;
 class QPushButton;
+class QScrollArea;
 class QSlider;
 class QSpinBox;
 class QTimer;
 class QVBoxLayout;
 class QWidget;
+class QResizeEvent;
 QT_END_NAMESPACE
 
 namespace groove {
@@ -31,6 +33,9 @@ class MainWindow : public QMainWindow {
 
 public:
     explicit MainWindow(GrooveController* controller, QWidget* parent = nullptr);
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     struct InstrumentWidgets {
@@ -55,13 +60,18 @@ private:
     void rebuildInstrumentEditors();
     void rebuildStepGrid();
     void clearLayout(QLayout* layout);
+    void updateStepGridButtonSizing();
     void populateRoleCombo(QComboBox* combo) const;
     InstrumentRole roleFromCombo(const QComboBox* combo) const;
     int roleComboIndex(InstrumentRole role) const;
     void refreshFromScene();
     void refreshStepHighlight();
     void updateStatus();
+    void syncActiveBarToTransport();
+    void saveProject();
+    void loadProject();
     void loadSampleForInstrument(int instrumentIndex);
+    void editStepParameters(int instrumentIndex, int stepIndex);
     void loadSoundfontFile();
     void renderBarsToWav();
     void renderSecondsToWav();
@@ -100,6 +110,7 @@ private:
     QSlider* mutationSlider_ = nullptr;
     QWidget* instrumentEditorWidget_ = nullptr;
     QVBoxLayout* instrumentEditorLayout_ = nullptr;
+    QScrollArea* stepScrollArea_ = nullptr;
     QWidget* stepGridWidget_ = nullptr;
     QGridLayout* stepGridLayout_ = nullptr;
     QString lastMessage_;

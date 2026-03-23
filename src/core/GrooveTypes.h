@@ -35,6 +35,11 @@ struct Step {
     bool active = false;
     float velocity = 0.0f;
     int note = 60;
+    float attack = 0.002f;
+    float decay = 0.120f;
+    float sustain = 0.0f;
+    float release = 0.080f;
+    float gate = 0.82f;
 };
 
 struct InstrumentLayerSettings {

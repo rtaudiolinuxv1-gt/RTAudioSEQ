@@ -87,7 +87,6 @@ bool OfflineRenderer::renderToFile(const GrooveScene& inputScene, const std::str
         for (int frame = 0; frame < blockFrames; ++frame) {
             if (stepSamplesRemaining <= 0.0) {
                 const double stepDuration = nextStepDuration(scene, static_cast<double>(sampleRate), transportStep);
-                const int gateSamples = std::max(1, static_cast<int>(stepDuration * 0.82));
                 for (std::size_t instrumentIndex = 0; instrumentIndex < scene.instruments.size(); ++instrumentIndex) {
                     const auto& instrument = scene.instruments[instrumentIndex];
                     const auto& step = instrument.steps[static_cast<std::size_t>(transportStep)];
@@ -95,15 +94,20 @@ bool OfflineRenderer::renderToFile(const GrooveScene& inputScene, const std::str
                         continue;
                     }
 
+                    const float gateRatio = std::clamp(step.gate, 0.05f, 1.5f);
+                    const int gateSamples = std::max(1, static_cast<int>(stepDuration * static_cast<double>(gateRatio)));
+                    const float gateSeconds = static_cast<float>(static_cast<double>(gateSamples) / static_cast<double>(sampleRate));
+
                     if (instrument.layers.synthEnabled) {
                         internalVoices[instrumentIndex].setRole(instrument.role);
-                        internalVoices[instrumentIndex].trigger(step.note, step.velocity);
+                        internalVoices[instrumentIndex].trigger(step.note, step, gateSeconds);
                     }
 
                     if (instrument.layers.sampleEnabled) {
                         auto sample = sampleBuffers[instrumentIndex];
                         if ((sample != nullptr) && sample->isValid()) {
-                            sampleVoices[instrumentIndex].trigger(sample, step.velocity, samplePlaybackRate(step, instrument.layers, *sample, static_cast<double>(sampleRate)));
+                            sampleVoices[instrumentIndex].trigger(
+                                sample, step, gateSeconds, samplePlaybackRate(step, instrument.layers, *sample, static_cast<double>(sampleRate)));
                         }
                     }
 

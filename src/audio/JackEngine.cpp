@@ -117,6 +117,11 @@ void JackEngine::clearSoundfont() {
     }
 }
 
+std::vector<SoundFontPreset> JackEngine::soundfontPresets() const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return soundfont_.presets();
+}
+
 bool JackEngine::startRecording(const std::string& path, AudioFileFormat format) {
     return recorder_.start(path, format, static_cast<int>(sampleRate_));
 }
@@ -254,7 +259,6 @@ void JackEngine::ensureRuntimeSize(std::size_t count) {
 void JackEngine::renderStepLocked(const GrooveScene& snapshot, void* midiBuffer, jack_nframes_t frameOffset, double stepDuration) {
     const int totalSteps = std::max(1, totalStepCount(snapshot));
     currentStep_.store(transportStep_);
-    const int gateSamples = std::max(1, static_cast<int>(stepDuration * 0.82));
 
     for (std::size_t index = 0; index < snapshot.instruments.size(); ++index) {
         const auto& instrument = snapshot.instruments[index];
@@ -263,16 +267,20 @@ void JackEngine::renderStepLocked(const GrooveScene& snapshot, void* midiBuffer,
             continue;
         }
 
+        const float gateRatio = std::clamp(step.gate, 0.05f, 1.5f);
+        const int gateSamples = std::max(1, static_cast<int>(stepDuration * static_cast<double>(gateRatio)));
+        const float gateSeconds = static_cast<float>(static_cast<double>(gateSamples) / sampleRate_);
+
         if (instrument.layers.synthEnabled) {
             internalVoices_[index].setRole(instrument.role);
-            internalVoices_[index].trigger(step.note, step.velocity);
+            internalVoices_[index].trigger(step.note, step, gateSeconds);
         }
 
         if (instrument.layers.sampleEnabled) {
             auto sample = sampleBuffers_[index];
             if ((sample == nullptr) == false) {
                 if (sample->isValid()) {
-                    sampleVoices_[index].trigger(sample, step.velocity, samplePlaybackRate(step, instrument.layers, *sample));
+                    sampleVoices_[index].trigger(sample, step, gateSeconds, samplePlaybackRate(step, instrument.layers, *sample));
                 }
             }
         }

@@ -19,6 +19,12 @@ GrooveScene GrooveController::scene() const {
     return scene_;
 }
 
+void GrooveController::setScene(const GrooveScene& scene) {
+    scene_ = normalizedScene(scene);
+    completedPatternRepeats_ = 0;
+    pushScene();
+}
+
 void GrooveController::regenerateScene() {
     scene_ = generator_.createScene(scene_);
     completedPatternRepeats_ = 0;
@@ -69,6 +75,40 @@ void GrooveController::addInstrument(const std::string& name, InstrumentRole rol
     resizeInstrumentSteps(instrument, totalStepCount(scene_));
     scene_.instruments.push_back(instrument);
     normalizeScene();
+    pushScene();
+}
+
+void GrooveController::removeInstrument(int instrumentIndex) {
+    if (validInstrumentIndex(instrumentIndex) == false) {
+        return;
+    }
+    if (scene_.instruments.size() <= 1) {
+        return;
+    }
+
+    scene_.instruments.erase(scene_.instruments.begin() + instrumentIndex);
+    completedPatternRepeats_ = 0;
+    pushScene();
+}
+
+void GrooveController::moveInstrumentUp(int instrumentIndex) {
+    if ((validInstrumentIndex(instrumentIndex) == false) || (instrumentIndex <= 0)) {
+        return;
+    }
+
+    std::swap(scene_.instruments[static_cast<std::size_t>(instrumentIndex)],
+        scene_.instruments[static_cast<std::size_t>(instrumentIndex - 1)]);
+    pushScene();
+}
+
+void GrooveController::moveInstrumentDown(int instrumentIndex) {
+    if ((validInstrumentIndex(instrumentIndex) == false)
+        || (instrumentIndex >= static_cast<int>(scene_.instruments.size()) - 1)) {
+        return;
+    }
+
+    std::swap(scene_.instruments[static_cast<std::size_t>(instrumentIndex)],
+        scene_.instruments[static_cast<std::size_t>(instrumentIndex + 1)]);
     pushScene();
 }
 
@@ -250,6 +290,10 @@ void GrooveController::clearSoundfont() {
         instrument.layers.soundfontEnabled = false;
     }
     pushScene();
+}
+
+std::vector<SoundFontPreset> GrooveController::soundfontPresets() const {
+    return engine_.soundfontPresets();
 }
 
 bool GrooveController::exportWavBars(const std::string& path, int bars) const {

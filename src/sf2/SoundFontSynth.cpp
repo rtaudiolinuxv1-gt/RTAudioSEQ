@@ -1,6 +1,8 @@
 #include "sf2/SoundFontSynth.h"
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 #include <fluidsynth.h>
 
@@ -119,6 +121,39 @@ void SoundFontSynth::renderFrame(float& left, float& right) {
         return;
     }
     fluid_synth_write_float(synth_, 1, &left, 0, 1, &right, 0, 1);
+}
+
+std::vector<SoundFontPreset> SoundFontSynth::presets() const {
+    std::vector<SoundFontPreset> result;
+    if ((synth_ == nullptr) || (soundFontId_ < 0)) {
+        return result;
+    }
+
+    fluid_sfont_t* sfont = fluid_synth_get_sfont_by_id(synth_, soundFontId_);
+    if (sfont == nullptr) {
+        return result;
+    }
+
+    fluid_sfont_iteration_start(sfont);
+    for (fluid_preset_t* preset = fluid_sfont_iteration_next(sfont); preset != nullptr;
+         preset = fluid_sfont_iteration_next(sfont)) {
+        const char* name = fluid_preset_get_name(preset);
+        const int bank = fluid_preset_get_banknum(preset);
+        const int program = fluid_preset_get_num(preset);
+        result.push_back(SoundFontPreset {name != nullptr ? std::string(name) : std::string(), bank, program});
+    }
+
+    std::sort(result.begin(), result.end(), [](const SoundFontPreset& left, const SoundFontPreset& right) {
+        if (left.bank != right.bank) {
+            return left.bank < right.bank;
+        }
+        if (left.program != right.program) {
+            return left.program < right.program;
+        }
+        return left.name < right.name;
+    });
+
+    return result;
 }
 
 void SoundFontSynth::recreate() {

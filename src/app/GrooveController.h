@@ -15,10 +15,14 @@ public:
     bool initialize();
 
     GrooveScene scene() const;
+    void setScene(const GrooveScene& scene);
     void regenerateScene();
     void mutateScene();
     void toggleStep(int instrumentIndex, int stepIndex);
     void addInstrument(const std::string& name, InstrumentRole role);
+    void removeInstrument(int instrumentIndex);
+    void moveInstrumentUp(int instrumentIndex);
+    void moveInstrumentDown(int instrumentIndex);
     void setInstrumentName(int instrumentIndex, const std::string& name);
     void setInstrumentRole(int instrumentIndex, InstrumentRole role);
     void setBpm(int bpm);
@@ -41,6 +45,7 @@ public:
     void clearSample(int instrumentIndex);
     bool loadSoundfont(const std::string& path);
     void clearSoundfont();
+    std::vector<SoundFontPreset> soundfontPresets() const;
 
     bool exportWavBars(const std::string& path, int bars) const;
     bool exportWavSeconds(const std::string& path, double seconds) const;

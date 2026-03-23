@@ -34,6 +34,7 @@ public:
     void clearSample(int instrumentIndex);
     bool loadSoundfont(const std::string& path);
     void clearSoundfont();
+    std::vector<SoundFontPreset> soundfontPresets() const;
 
     bool startRecording(const std::string& path, AudioFileFormat format);
     void stopRecording();

@@ -196,15 +196,23 @@ QString soundfontPresetNameForInstrument(const std::vector<SoundFontPreset>& pre
 
 QString rowLabelText(const InstrumentDefinition& instrument, const std::vector<SoundFontPreset>& presets, bool hasSoundfont) {
     QString label = QString::fromStdString(instrument.name);
-    if (hasSoundfont == false) {
-        return label;
+    QStringList parts;
+
+    if (instrument.layers.sampleEnabled && (instrument.layers.samplePath.empty() == false)) {
+        parts << QFileInfo(QString::fromStdString(instrument.layers.samplePath)).fileName();
     }
 
-    const QString presetName = soundfontPresetNameForInstrument(presets, instrument);
-    if (presetName.isEmpty()) {
+    if (hasSoundfont && instrument.layers.soundfontEnabled) {
+        const QString presetName = soundfontPresetNameForInstrument(presets, instrument);
+        if (presetName.isEmpty() == false) {
+            parts << presetName;
+        }
+    }
+
+    if (parts.isEmpty()) {
         return label;
     }
-    return QString("%1 (%2)").arg(label, presetName);
+    return QString("%1 (%2)").arg(label, parts.join(" | "));
 }
 
 QString midiNoteName(int midiNote) {

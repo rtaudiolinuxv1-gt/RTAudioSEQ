@@ -1,6 +1,6 @@
-# RTAudioSeq
+# RTAudioSeq (RTAudioLinux)
 
-`RTAudioSeq` is a Linux-native generative groovebox built with `Qt5 Widgets`, `JACK`, `FluidSynth`, and plain C++17.
+`RTAudioSeq` is a Linux-native generative soundfont sequencer built with `Qt5 Widgets`, `JACK`, `FluidSynth`, and plain C++17.
 
 ## What it does
 
@@ -22,9 +22,8 @@
 ## Build
 
 ```bash
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
+mkdir build && cd build
+cmake ..
 ```
 
 ## Run
@@ -32,5 +31,5 @@ ctest --test-dir build --output-on-failure
 Start JACK or PipeWire's JACK shim first, then launch:
 
 ```bash
-./build/RTAudioSeq
+./RTAudioSeq
 ```

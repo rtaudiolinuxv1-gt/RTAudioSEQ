@@ -1,7 +1,0 @@
-/home/jim/BUILD/build/CMakeFiles/RTAudioSeq.dir
-/home/jim/BUILD/build/CMakeFiles/pattern_generator_tests.dir
-/home/jim/BUILD/build/CMakeFiles/test.dir
-/home/jim/BUILD/build/CMakeFiles/edit_cache.dir
-/home/jim/BUILD/build/CMakeFiles/rebuild_cache.dir
-/home/jim/BUILD/build/CMakeFiles/RTAudioSeq_autogen.dir
-/home/jim/BUILD/build/CMakeFiles/pattern_generator_tests_autogen.dir

@@ -1,16 +1,11 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "generation/PatternGenerator.h"
 
 #include <algorithm>
-#include <array>
+#include <limits>
 
 namespace groove {
-
-namespace {
-
-constexpr std::array<int, 8> kMinorScale = {0, 3, 5, 7, 10, 12, 15, 17};
-constexpr std::array<int, 8> kMajorScale = {0, 2, 4, 7, 9, 12, 14, 16};
-
-}  // namespace
 
 PatternGenerator::PatternGenerator() : engine_(std::random_device {}()) {}
 
@@ -27,7 +22,7 @@ GrooveScene PatternGenerator::createScene(const GrooveScene& templateScene) {
             step.velocity = 0.0f;
             step.note = instrument.rootNote;
         }
-        generateInstrument(instrument, scene.stepsPerBar, totalStepCount(scene));
+        generateInstrument(instrument, scene);
         applyInstrumentDefaultsToUnlockedSteps(instrument);
     }
 
@@ -58,20 +53,35 @@ GrooveScene PatternGenerator::mutateScene(const GrooveScene& currentScene) {
 
             if (step.active) {
                 step.velocity = randomVelocity(0.45f, 1.0f);
-                if (instrument.role == InstrumentRole::Bass) {
-                    step.note = chooseBassNote(stepIndex, mutated.stepsPerBar, instrument.rootNote);
-                } else if (instrument.role == InstrumentRole::Lead || instrument.role == InstrumentRole::Custom) {
-                    step.note = chooseLeadNote(stepIndex, mutated.stepsPerBar, instrument.rootNote);
-                } else {
-                    step.note = instrument.rootNote;
+                const float noteMutationChance = std::clamp((mutation * 0.25f) + (mutated.noteVariation * 0.55f), 0.10f, 0.90f);
+                if (chance(noteMutationChance)) {
+                    if (instrument.role == InstrumentRole::Bass) {
+                        const int lowRange = 5 + static_cast<int>(std::round(mutated.noteVariation * 12.0f));
+                        const int highRange = 7 + static_cast<int>(std::round(mutated.noteVariation * 14.0f));
+                        step.note = randomNoteForInstrument(mutated, instrument, instrument.rootNote - lowRange, instrument.rootNote + highRange, true);
+                    } else if (instrument.role == InstrumentRole::Lead || instrument.role == InstrumentRole::Custom) {
+                        const int leadRange = 7 + static_cast<int>(std::round(mutated.noteVariation * 17.0f));
+                        step.note = randomNoteForInstrument(mutated, instrument, instrument.rootNote - leadRange, instrument.rootNote + leadRange, false);
+                    } else if (instrument.role == InstrumentRole::Perc) {
+                        const int variationRange = 2 + static_cast<int>(std::round(mutated.noteVariation * 10.0f));
+                        step.note = randomNoteForInstrument(mutated, instrument, instrument.rootNote - variationRange, instrument.rootNote + variationRange, false);
+                    } else {
+                        step.note = instrument.rootNote;
+                    }
                 }
             } else if (chance(density * mutation * 0.25f)) {
                 step.active = true;
                 step.velocity = randomVelocity(0.35f, 0.82f);
                 if (instrument.role == InstrumentRole::Bass) {
-                    step.note = chooseBassNote(stepIndex, mutated.stepsPerBar, instrument.rootNote);
+                    const int lowRange = 5 + static_cast<int>(std::round(mutated.noteVariation * 12.0f));
+                    const int highRange = 7 + static_cast<int>(std::round(mutated.noteVariation * 14.0f));
+                    step.note = randomNoteForInstrument(mutated, instrument, instrument.rootNote - lowRange, instrument.rootNote + highRange, true);
                 } else if (instrument.role == InstrumentRole::Lead || instrument.role == InstrumentRole::Custom) {
-                    step.note = chooseLeadNote(stepIndex, mutated.stepsPerBar, instrument.rootNote);
+                    const int leadRange = 7 + static_cast<int>(std::round(mutated.noteVariation * 17.0f));
+                    step.note = randomNoteForInstrument(mutated, instrument, instrument.rootNote - leadRange, instrument.rootNote + leadRange, false);
+                } else if (instrument.role == InstrumentRole::Perc) {
+                    const int variationRange = 2 + static_cast<int>(std::round(mutated.noteVariation * 10.0f));
+                    step.note = randomNoteForInstrument(mutated, instrument, instrument.rootNote - variationRange, instrument.rootNote + variationRange, false);
                 } else {
                     step.note = instrument.rootNote;
                 }
@@ -82,7 +92,9 @@ GrooveScene PatternGenerator::mutateScene(const GrooveScene& currentScene) {
     return mutated;
 }
 
-void PatternGenerator::generateInstrument(InstrumentDefinition& instrument, int stepsPerBar, int totalSteps) {
+void PatternGenerator::generateInstrument(InstrumentDefinition& instrument, const GrooveScene& scene) {
+    const int stepsPerBar = scene.stepsPerBar;
+    const int totalSteps = totalStepCount(scene);
     switch (instrument.role) {
     case InstrumentRole::Kick:
         generateKick(instrument, stepsPerBar, totalSteps);
@@ -100,14 +112,14 @@ void PatternGenerator::generateInstrument(InstrumentDefinition& instrument, int 
         generateClap(instrument, stepsPerBar, totalSteps);
         break;
     case InstrumentRole::Perc:
-        generatePerc(instrument, stepsPerBar, totalSteps);
+        generatePerc(instrument, scene, totalSteps);
         break;
     case InstrumentRole::Bass:
-        generateBass(instrument, stepsPerBar, totalSteps);
+        generateBass(instrument, scene, totalSteps);
         break;
     case InstrumentRole::Lead:
     case InstrumentRole::Custom:
-        generateLead(instrument, stepsPerBar, totalSteps);
+        generateLead(instrument, scene, totalSteps);
         break;
     }
 }
@@ -179,43 +191,59 @@ void PatternGenerator::generateClap(InstrumentDefinition& instrument, int stepsP
     }
 }
 
-void PatternGenerator::generatePerc(InstrumentDefinition& instrument, int stepsPerBar, int totalSteps) {
+void PatternGenerator::generatePerc(InstrumentDefinition& instrument, const GrooveScene& scene, int totalSteps) {
+    const int stepsPerBar = scene.stepsPerBar;
+    const int variationRange = 2 + static_cast<int>(std::round(scene.noteVariation * 10.0f));
     const int accent = std::max(1, stepsPerBar / 8);
     for (int stepIndex = 0; stepIndex < totalSteps; ++stepIndex) {
         const int stepInBar = stepIndex % stepsPerBar;
         const bool favored = ((stepInBar + accent) % (accent * 2)) == 0;
         const float probability = favored ? instrument.density * 0.65f : instrument.density * 0.25f;
         if (chance(probability)) {
-            instrument.steps[stepIndex] = makeStep(randomVelocity(0.30f, 0.72f), instrument.rootNote + ((stepIndex / accent) % 3) * 2);
+            instrument.steps[stepIndex] = makeStep(
+                randomVelocity(0.30f, 0.72f),
+                randomNoteForInstrument(scene, instrument, instrument.rootNote - variationRange, instrument.rootNote + variationRange, false));
         }
     }
 }
 
-void PatternGenerator::generateBass(InstrumentDefinition& instrument, int stepsPerBar, int totalSteps) {
+void PatternGenerator::generateBass(InstrumentDefinition& instrument, const GrooveScene& scene, int totalSteps) {
+    const int stepsPerBar = scene.stepsPerBar;
+    const int lowRange = 5 + static_cast<int>(std::round(scene.noteVariation * 12.0f));
+    const int highRange = 7 + static_cast<int>(std::round(scene.noteVariation * 14.0f));
     const int beat = stepsPerBar / 4;
     for (int stepIndex = 0; stepIndex < totalSteps; ++stepIndex) {
         const int stepInBar = stepIndex % stepsPerBar;
         const bool favored = (stepInBar == 0) || (stepInBar == beat) || (stepInBar == (beat * 2)) || (stepInBar == (beat * 3));
         const float probability = favored ? instrument.density * 0.90f : instrument.density * 0.30f;
         if (chance(probability)) {
-            instrument.steps[stepIndex] = makeStep(randomVelocity(0.45f, 0.88f), chooseBassNote(stepIndex, stepsPerBar, instrument.rootNote));
+            const int note = favored
+                ? keyRootNearMidi(scene, 36)
+                : randomNoteForInstrument(scene, instrument, instrument.rootNote - lowRange, instrument.rootNote + highRange, false);
+            instrument.steps[stepIndex] = makeStep(randomVelocity(0.45f, 0.88f), note);
         }
     }
 
     for (int barIndex = 0; barIndex < (totalSteps / stepsPerBar); ++barIndex) {
         const int downbeat = barIndex * stepsPerBar;
-        instrument.steps[downbeat] = makeStep(0.88f, instrument.rootNote);
+        instrument.steps[downbeat] = makeStep(0.88f, keyRootNearMidi(scene, 36));
     }
 }
 
-void PatternGenerator::generateLead(InstrumentDefinition& instrument, int stepsPerBar, int totalSteps) {
+void PatternGenerator::generateLead(InstrumentDefinition& instrument, const GrooveScene& scene, int totalSteps) {
+    const int stepsPerBar = scene.stepsPerBar;
+    const int leadRange = 7 + static_cast<int>(std::round(scene.noteVariation * 17.0f));
     const int accent = std::max(1, stepsPerBar / 8);
     for (int stepIndex = 0; stepIndex < totalSteps; ++stepIndex) {
         const int stepInBar = stepIndex % stepsPerBar;
         const bool favored = (stepInBar % (accent * 2)) == 0;
-        const float probability = favored ? instrument.density * 0.55f : instrument.density * 0.18f;
+        const float favoredBoost = 0.55f + (scene.noteVariation * 0.22f);
+        const float offbeatBoost = 0.18f + (scene.noteVariation * 0.20f);
+        const float probability = favored ? instrument.density * favoredBoost : instrument.density * offbeatBoost;
         if (chance(probability)) {
-            instrument.steps[stepIndex] = makeStep(randomVelocity(0.30f, 0.72f), chooseLeadNote(stepIndex, stepsPerBar, instrument.rootNote));
+            instrument.steps[stepIndex] = makeStep(
+                randomVelocity(0.30f, 0.72f),
+                randomNoteForInstrument(scene, instrument, instrument.rootNote - leadRange, instrument.rootNote + leadRange, favored));
         }
     }
 }
@@ -230,26 +258,54 @@ float PatternGenerator::randomVelocity(float minVelocity, float maxVelocity) {
     return distribution(engine_);
 }
 
-int PatternGenerator::chooseBassNote(int stepIndex, int stepsPerBar, int rootNote) {
-    std::uniform_int_distribution<int> variation(0, static_cast<int>(kMinorScale.size()) - 1);
-    const int stepInBar = stepIndex % stepsPerBar;
-    const int beat = stepsPerBar / 4;
-    if ((stepInBar == 0) || (stepInBar == (beat * 2))) {
-        return rootNote;
+int PatternGenerator::randomNoteForInstrument(
+    const GrooveScene& scene, const InstrumentDefinition& instrument, int lowMidi, int highMidi, bool favorRoot) {
+    lowMidi = std::clamp(lowMidi, 0, 127);
+    highMidi = std::clamp(highMidi, 0, 127);
+    if (lowMidi > highMidi) {
+        std::swap(lowMidi, highMidi);
     }
-    if ((stepInBar == beat) || (stepInBar == (beat * 3))) {
-        return rootNote + 7;
+
+    std::vector<int> candidates;
+    const std::vector<int> intervals = scaleIntervals(scene.scaleMode);
+    for (int midiNote = lowMidi; midiNote <= highMidi; ++midiNote) {
+        const int pitchClass = (midiNote % 12 + 12) % 12;
+        const int relativePitchClass = (pitchClass - scene.keyRoot + 12) % 12;
+        if (scene.scaleMode == ScaleMode::Chromatic
+            || std::find(intervals.begin(), intervals.end(), relativePitchClass) != intervals.end()) {
+            candidates.push_back(midiNote);
+        }
     }
-    return rootNote + kMinorScale[static_cast<std::size_t>(variation(engine_))];
+
+    if (candidates.empty()) {
+        return std::clamp(instrument.rootNote, 0, 127);
+    }
+
+    const float rootBias = std::clamp(0.70f - (scene.noteVariation * 0.55f), 0.10f, 0.70f);
+    if (favorRoot && chance(rootBias)) {
+        return keyRootNearMidi(scene, std::clamp(instrument.rootNote, lowMidi, highMidi));
+    }
+
+    std::uniform_int_distribution<int> distribution(0, static_cast<int>(candidates.size()) - 1);
+    return candidates[static_cast<std::size_t>(distribution(engine_))];
 }
 
-int PatternGenerator::chooseLeadNote(int stepIndex, int stepsPerBar, int rootNote) {
-    std::uniform_int_distribution<int> variation(0, static_cast<int>(kMajorScale.size()) - 1);
-    const int stepInBar = stepIndex % stepsPerBar;
-    if ((stepInBar % std::max(1, stepsPerBar / 4)) == 0) {
-        return rootNote + kMajorScale[static_cast<std::size_t>(variation(engine_))];
+int PatternGenerator::keyRootNearMidi(const GrooveScene& scene, int targetMidi) const {
+    targetMidi = std::clamp(targetMidi, 0, 127);
+    int bestNote = targetMidi;
+    int bestDistance = std::numeric_limits<int>::max();
+    for (int octave = -1; octave <= 10; ++octave) {
+        const int candidate = (octave * 12) + scene.keyRoot;
+        if ((candidate < 0) || (candidate > 127)) {
+            continue;
+        }
+        const int distance = std::abs(candidate - targetMidi);
+        if ((distance < bestDistance) || ((distance == bestDistance) && (candidate >= targetMidi) && (bestNote < targetMidi))) {
+            bestDistance = distance;
+            bestNote = candidate;
+        }
     }
-    return rootNote + kMajorScale[static_cast<std::size_t>(variation(engine_))] + ((stepInBar / std::max(1, stepsPerBar / 8)) % 2);
+    return bestNote;
 }
 
 bool PatternGenerator::isAnchor(const InstrumentDefinition& instrument, int stepIndex, int stepsPerBar) const {

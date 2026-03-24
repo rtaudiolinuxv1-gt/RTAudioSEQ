@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 
 #include <atomic>
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -35,6 +38,14 @@ public:
     void clearSoundfont();
     std::vector<SoundFontPreset> soundfontPresets() const;
     bool autoConnectOutputs();
+    bool loadPreview(const std::string& path);
+    void playPreview();
+    void stopPreview();
+    void seekPreview(std::int64_t deltaMs);
+    std::int64_t previewPositionMs() const;
+    std::int64_t previewDurationMs() const;
+    void setPreviewGainDb(float gainDb);
+    float previewGainDb() const;
 
     bool startRecording(const std::string& path, AudioFileFormat format);
     void stopRecording();
@@ -52,6 +63,23 @@ private:
         std::uint8_t note = 0;
         std::uint8_t channel = 0;
         int samplesRemaining = 0;
+    };
+
+    struct PreviewStereoBuffer {
+        std::vector<float> left;
+        std::vector<float> right;
+        double sampleRate = 48000.0;
+
+        bool isValid() const {
+            return (left.empty() == false) && (left.size() == right.size()) && (sampleRate > 0.0);
+        }
+
+        std::size_t frameCount() const {
+            return left.size();
+        }
+
+        float leftSampleAt(double frameIndex) const;
+        float rightSampleAt(double frameIndex) const;
     };
 
     static int processShim(jack_nframes_t nframes, void* arg);
@@ -75,6 +103,7 @@ private:
     GrooveScene scene_ {};
     std::vector<SampleVoice> sampleVoices_;
     std::vector<std::shared_ptr<const SampleBuffer>> sampleBuffers_;
+    PreviewStereoBuffer previewBuffer_;
     std::vector<NoteState> midiNotes_;
     std::vector<NoteState> soundfontNotes_;
     SoundFontSynth soundfont_;
@@ -88,6 +117,9 @@ private:
     double sampleRate_ = 48000.0;
     double stepSamplesRemaining_ = 0.0;
     int transportStep_ = 0;
+    double previewFrame_ = 0.0;
+    bool previewPlaying_ = false;
+    float previewGainDb_ = 0.0f;
 
     AudioRecorder recorder_ {};
 };

@@ -23,11 +23,13 @@ set(RTAUDIOSEQ_SOURCES
     src/audio/JackEngine.cpp
     src/export/OfflineRenderer.cpp
     src/generation/PatternGenerator.cpp
+    src/preview/PreviewPlayer.cpp
     src/recording/AudioRecorder.cpp
     src/sample/SampleBuffer.cpp
     src/sample/SampleVoice.cpp
     src/sf2/SoundFontSynth.cpp
     src/ui/MainWindow.cpp
+    src/ui/WaveformView.cpp
 )
 
 add_executable(RTAudioSeq ${RTAUDIOSEQ_SOURCES})

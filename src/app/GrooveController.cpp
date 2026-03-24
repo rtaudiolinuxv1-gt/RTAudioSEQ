@@ -1,9 +1,48 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "app/GrooveController.h"
 
 #include <algorithm>
 #include <fstream>
 
 namespace groove {
+
+namespace {
+
+bool usesScaledNotes(InstrumentRole role) {
+    switch (role) {
+    case InstrumentRole::Perc:
+    case InstrumentRole::Bass:
+    case InstrumentRole::Lead:
+    case InstrumentRole::Custom:
+        return true;
+    case InstrumentRole::Kick:
+    case InstrumentRole::Snare:
+    case InstrumentRole::ClosedHat:
+    case InstrumentRole::OpenHat:
+    case InstrumentRole::Clap:
+        return false;
+    }
+    return false;
+}
+
+void quantizeSceneToScale(GrooveScene& scene) {
+    for (auto& instrument : scene.instruments) {
+        if (usesScaledNotes(instrument.role) == false) {
+            continue;
+        }
+        instrument.rootNote = quantizeNoteToScale(instrument.rootNote, scene.keyRoot, scene.scaleMode);
+        instrument.layers.sampleRootMidiNote = instrument.rootNote;
+        for (auto& step : instrument.steps) {
+            if (step.active == false) {
+                continue;
+            }
+            step.note = quantizeNoteToScale(step.note, scene.keyRoot, scene.scaleMode);
+        }
+    }
+}
+
+}  // namespace
 
 GrooveController::GrooveController() {
     scene_ = normalizedScene(makeDefaultScene());
@@ -172,6 +211,23 @@ void GrooveController::setSwing(float swing) {
     pushScene();
 }
 
+void GrooveController::setKeyRoot(int keyRoot) {
+    scene_.keyRoot = clampKeyRoot(keyRoot);
+    quantizeSceneToScale(scene_);
+    pushScene();
+}
+
+void GrooveController::setScaleMode(ScaleMode scaleMode) {
+    scene_.scaleMode = scaleMode;
+    quantizeSceneToScale(scene_);
+    pushScene();
+}
+
+void GrooveController::setNoteVariation(float noteVariation) {
+    scene_.noteVariation = std::clamp(noteVariation, 0.0f, 1.0f);
+    pushScene();
+}
+
 void GrooveController::setMutationEnabled(bool enabled) {
     scene_.mutationEnabled = enabled;
     pushScene();
@@ -297,6 +353,38 @@ void GrooveController::clearSoundfont() {
 
 std::vector<SoundFontPreset> GrooveController::soundfontPresets() const {
     return engine_.soundfontPresets();
+}
+
+bool GrooveController::loadPreview(const std::string& path) {
+    return engine_.loadPreview(path);
+}
+
+void GrooveController::playPreview() {
+    engine_.playPreview();
+}
+
+void GrooveController::stopPreview() {
+    engine_.stopPreview();
+}
+
+void GrooveController::seekPreview(std::int64_t deltaMs) {
+    engine_.seekPreview(deltaMs);
+}
+
+std::int64_t GrooveController::previewPositionMs() const {
+    return engine_.previewPositionMs();
+}
+
+std::int64_t GrooveController::previewDurationMs() const {
+    return engine_.previewDurationMs();
+}
+
+void GrooveController::setPreviewGainDb(float gainDb) {
+    engine_.setPreviewGainDb(gainDb);
+}
+
+float GrooveController::previewGainDb() const {
+    return engine_.previewGainDb();
 }
 
 bool GrooveController::exportWavBars(const std::string& path, int bars) const {

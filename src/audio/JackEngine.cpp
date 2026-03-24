@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "audio/JackEngine.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <cerrno>
+
+#include <sndfile.h>
 
 namespace groove {
 
@@ -13,7 +17,30 @@ std::uint8_t clampMidiValue(int value) {
     return static_cast<std::uint8_t>(std::clamp(value, 0, 127));
 }
 
+float interpolatedSample(const std::vector<float>& frames, double frameIndex) {
+    if (frames.empty() || (frameIndex < 0.0)) {
+        return 0.0f;
+    }
+
+    const std::size_t lowerIndex = static_cast<std::size_t>(frameIndex);
+    if (lowerIndex >= frames.size()) {
+        return 0.0f;
+    }
+
+    const std::size_t upperIndex = std::min(lowerIndex + 1, frames.size() - 1);
+    const float fraction = static_cast<float>(frameIndex - static_cast<double>(lowerIndex));
+    return frames[lowerIndex] + ((frames[upperIndex] - frames[lowerIndex]) * fraction);
+}
+
 }  // namespace
+
+float JackEngine::PreviewStereoBuffer::leftSampleAt(double frameIndex) const {
+    return interpolatedSample(left, frameIndex);
+}
+
+float JackEngine::PreviewStereoBuffer::rightSampleAt(double frameIndex) const {
+    return interpolatedSample(right, frameIndex);
+}
 
 JackEngine::JackEngine() = default;
 
@@ -151,6 +178,97 @@ bool JackEngine::autoConnectOutputs() {
     return leftOk && rightOk;
 }
 
+bool JackEngine::loadPreview(const std::string& path) {
+    SF_INFO info {};
+    SNDFILE* file = sf_open(path.c_str(), SFM_READ, &info);
+    if ((file == nullptr) || (info.frames <= 0) || (info.channels <= 0)) {
+        if (file != nullptr) {
+            sf_close(file);
+        }
+        return false;
+    }
+
+    std::vector<float> interleaved(static_cast<std::size_t>(info.frames) * static_cast<std::size_t>(info.channels));
+    const sf_count_t framesRead = sf_readf_float(file, interleaved.data(), info.frames);
+    sf_close(file);
+    if (framesRead <= 0) {
+        return false;
+    }
+
+    PreviewStereoBuffer buffer;
+    buffer.sampleRate = static_cast<double>(info.samplerate);
+    buffer.left.resize(static_cast<std::size_t>(framesRead), 0.0f);
+    buffer.right.resize(static_cast<std::size_t>(framesRead), 0.0f);
+    for (sf_count_t frame = 0; frame < framesRead; ++frame) {
+        const std::size_t baseIndex = static_cast<std::size_t>(frame) * static_cast<std::size_t>(info.channels);
+        buffer.left[static_cast<std::size_t>(frame)] = interleaved[baseIndex];
+        buffer.right[static_cast<std::size_t>(frame)] =
+            interleaved[baseIndex + static_cast<std::size_t>(std::min(1, info.channels - 1))];
+    }
+    if (info.channels == 1) {
+        buffer.right = buffer.left;
+    }
+    if (buffer.isValid() == false) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    previewBuffer_ = std::move(buffer);
+    previewFrame_ = 0.0;
+    previewPlaying_ = false;
+    return true;
+}
+
+void JackEngine::playPreview() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (previewBuffer_.isValid() == false) {
+        return;
+    }
+    previewPlaying_ = true;
+}
+
+void JackEngine::stopPreview() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    previewPlaying_ = false;
+    previewFrame_ = 0.0;
+}
+
+void JackEngine::seekPreview(std::int64_t deltaMs) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (previewBuffer_.isValid() == false) {
+        return;
+    }
+
+    const double deltaFrames = (static_cast<double>(deltaMs) * previewBuffer_.sampleRate) / 1000.0;
+    previewFrame_ = std::clamp(previewFrame_ + deltaFrames, 0.0, static_cast<double>(previewBuffer_.frameCount()));
+}
+
+std::int64_t JackEngine::previewPositionMs() const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (previewBuffer_.isValid() == false) {
+        return 0;
+    }
+    return static_cast<std::int64_t>((previewFrame_ * 1000.0) / previewBuffer_.sampleRate);
+}
+
+std::int64_t JackEngine::previewDurationMs() const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    if (previewBuffer_.isValid() == false) {
+        return 0;
+    }
+    return static_cast<std::int64_t>((static_cast<double>(previewBuffer_.frameCount()) * 1000.0) / previewBuffer_.sampleRate);
+}
+
+void JackEngine::setPreviewGainDb(float gainDb) {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    previewGainDb_ = std::clamp(gainDb, -24.0f, 18.0f);
+}
+
+float JackEngine::previewGainDb() const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return previewGainDb_;
+}
+
 bool JackEngine::startRecording(const std::string& path, AudioFileFormat format) {
     return recorder_.start(path, format, static_cast<int>(sampleRate_));
 }
@@ -216,21 +334,15 @@ int JackEngine::process(jack_nframes_t nframes) {
     ensureRuntimeSize(snapshot.instruments.size());
     writePendingTransportLocked(midiBuffer);
 
-    if (playing_.load() == false) {
-        if (recorder_.isRecording()) {
-            recorder_.pushBlock(left, right, static_cast<std::size_t>(nframes));
-        }
-        return 0;
-    }
-
-    if (stepSamplesRemaining_ <= 0.0) {
+    const bool transportPlaying = playing_.load();
+    if (transportPlaying && (stepSamplesRemaining_ <= 0.0)) {
         const double stepDuration = nextStepDuration(snapshot);
         renderStepLocked(snapshot, midiBuffer, 0, stepDuration);
         stepSamplesRemaining_ = stepDuration;
     }
 
     for (jack_nframes_t frame = 0; frame < nframes; ++frame) {
-        if (stepSamplesRemaining_ <= 0.0) {
+        if (transportPlaying && (stepSamplesRemaining_ <= 0.0)) {
             const double stepDuration = nextStepDuration(snapshot);
             renderStepLocked(snapshot, midiBuffer, frame, stepDuration);
             stepSamplesRemaining_ += stepDuration;
@@ -240,17 +352,31 @@ int JackEngine::process(jack_nframes_t nframes) {
         for (std::size_t index = 0; index < sampleVoices_.size(); ++index) {
             mono += sampleVoices_[index].render();
         }
+        float previewLeft = 0.0f;
+        float previewRight = 0.0f;
+        if (previewPlaying_ && previewBuffer_.isValid()) {
+            const float previewGainLinear = std::pow(10.0f, previewGainDb_ / 20.0f);
+            previewLeft = previewBuffer_.leftSampleAt(previewFrame_) * previewGainLinear;
+            previewRight = previewBuffer_.rightSampleAt(previewFrame_) * previewGainLinear;
+            previewFrame_ += previewBuffer_.sampleRate / sampleRate_;
+            if (previewFrame_ >= static_cast<double>(previewBuffer_.frameCount())) {
+                previewFrame_ = static_cast<double>(previewBuffer_.frameCount());
+                previewPlaying_ = false;
+            }
+        }
 
         float sfLeft = 0.0f;
         float sfRight = 0.0f;
         soundfont_.renderFrame(sfLeft, sfRight);
-        const float leftSample = std::clamp((mono * 0.32f) + (sfLeft * 0.60f), -1.0f, 1.0f);
-        const float rightSample = std::clamp((mono * 0.32f) + (sfRight * 0.60f), -1.0f, 1.0f);
+        const float leftSample = std::clamp((mono * 0.32f) + (sfLeft * 0.60f) + previewLeft, -1.0f, 1.0f);
+        const float rightSample = std::clamp((mono * 0.32f) + (sfRight * 0.60f) + previewRight, -1.0f, 1.0f);
 
         left[frame] = leftSample;
         right[frame] = rightSample;
         advanceMidiNotesLocked(midiBuffer, frame);
-        stepSamplesRemaining_ -= 1.0;
+        if (transportPlaying) {
+            stepSamplesRemaining_ -= 1.0;
+        }
     }
 
     if (recorder_.isRecording()) {
@@ -358,6 +484,8 @@ void JackEngine::resetTransportLocked() {
         noteState.active = false;
         noteState.samplesRemaining = 0;
     }
+    previewPlaying_ = false;
+    previewFrame_ = 0.0;
 }
 
 double JackEngine::samplePlaybackRate(const Step& step, const InstrumentLayerSettings& settings, const SampleBuffer& sample) const {

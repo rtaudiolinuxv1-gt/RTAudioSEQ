@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 
 #include <algorithm>
@@ -29,6 +31,16 @@ enum class InstrumentRole {
     Bass,
     Lead,
     Custom,
+};
+
+enum class ScaleMode {
+    Chromatic,
+    Major,
+    NaturalMinor,
+    Dorian,
+    Mixolydian,
+    PentatonicMajor,
+    PentatonicMinor,
 };
 
 struct Step {
@@ -81,8 +93,11 @@ struct GrooveScene {
     int stepsPerBar = kDefaultStepsPerBar;
     int repeatsBeforeMutation = 4;
     float swing = 0.10f;
+    float noteVariation = 0.45f;
     float mutationAmount = 0.35f;
     bool mutationEnabled = true;
+    int keyRoot = 0;
+    ScaleMode scaleMode = ScaleMode::NaturalMinor;
     std::string soundfontPath;
     std::vector<InstrumentDefinition> instruments;
     std::uint32_t seed = 1;
@@ -110,6 +125,128 @@ inline int totalStepCount(int patternBars, int stepsPerBar) {
 
 inline int totalStepCount(const GrooveScene& scene) {
     return totalStepCount(scene.patternBars, scene.stepsPerBar);
+}
+
+inline int clampKeyRoot(int keyRoot) {
+    keyRoot %= 12;
+    if (keyRoot < 0) {
+        keyRoot += 12;
+    }
+    return keyRoot;
+}
+
+inline const char* keyRootName(int keyRoot) {
+    switch (clampKeyRoot(keyRoot)) {
+    case 0:
+        return "C";
+    case 1:
+        return "C#";
+    case 2:
+        return "D";
+    case 3:
+        return "D#";
+    case 4:
+        return "E";
+    case 5:
+        return "F";
+    case 6:
+        return "F#";
+    case 7:
+        return "G";
+    case 8:
+        return "G#";
+    case 9:
+        return "A";
+    case 10:
+        return "A#";
+    case 11:
+        return "B";
+    }
+    return "C";
+}
+
+inline const char* scaleModeName(ScaleMode scaleMode) {
+    switch (scaleMode) {
+    case ScaleMode::Chromatic:
+        return "Chromatic";
+    case ScaleMode::Major:
+        return "Major";
+    case ScaleMode::NaturalMinor:
+        return "Natural Minor";
+    case ScaleMode::Dorian:
+        return "Dorian";
+    case ScaleMode::Mixolydian:
+        return "Mixolydian";
+    case ScaleMode::PentatonicMajor:
+        return "Pentatonic Major";
+    case ScaleMode::PentatonicMinor:
+        return "Pentatonic Minor";
+    }
+    return "Natural Minor";
+}
+
+inline ScaleMode normalizedScaleMode(ScaleMode scaleMode) {
+    switch (scaleMode) {
+    case ScaleMode::Chromatic:
+    case ScaleMode::Major:
+    case ScaleMode::NaturalMinor:
+    case ScaleMode::Dorian:
+    case ScaleMode::Mixolydian:
+    case ScaleMode::PentatonicMajor:
+    case ScaleMode::PentatonicMinor:
+        return scaleMode;
+    }
+    return ScaleMode::NaturalMinor;
+}
+
+inline std::vector<int> scaleIntervals(ScaleMode scaleMode) {
+    switch (scaleMode) {
+    case ScaleMode::Chromatic:
+        return {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+    case ScaleMode::Major:
+        return {0, 2, 4, 5, 7, 9, 11};
+    case ScaleMode::NaturalMinor:
+        return {0, 2, 3, 5, 7, 8, 10};
+    case ScaleMode::Dorian:
+        return {0, 2, 3, 5, 7, 9, 10};
+    case ScaleMode::Mixolydian:
+        return {0, 2, 4, 5, 7, 9, 10};
+    case ScaleMode::PentatonicMajor:
+        return {0, 2, 4, 7, 9};
+    case ScaleMode::PentatonicMinor:
+        return {0, 3, 5, 7, 10};
+    }
+    return {0, 2, 3, 5, 7, 8, 10};
+}
+
+inline bool noteMatchesScale(int midiNote, int keyRoot, ScaleMode scaleMode) {
+    if (scaleMode == ScaleMode::Chromatic) {
+        return true;
+    }
+    const int relativePitchClass = ((midiNote % 12) - clampKeyRoot(keyRoot) + 12) % 12;
+    const std::vector<int> intervals = scaleIntervals(scaleMode);
+    return std::find(intervals.begin(), intervals.end(), relativePitchClass) != intervals.end();
+}
+
+inline int quantizeNoteToScale(int midiNote, int keyRoot, ScaleMode scaleMode) {
+    midiNote = std::clamp(midiNote, 0, 127);
+    if (noteMatchesScale(midiNote, keyRoot, scaleMode)) {
+        return midiNote;
+    }
+
+    int bestNote = midiNote;
+    int bestDistance = 128;
+    for (int candidate = 0; candidate <= 127; ++candidate) {
+        if (noteMatchesScale(candidate, keyRoot, scaleMode) == false) {
+            continue;
+        }
+        const int distance = std::abs(candidate - midiNote);
+        if ((distance < bestDistance) || ((distance == bestDistance) && (candidate >= midiNote) && (bestNote < midiNote))) {
+            bestDistance = distance;
+            bestNote = candidate;
+        }
+    }
+    return bestNote;
 }
 
 inline int defaultMidiNoteForRole(InstrumentRole role) {
@@ -329,7 +466,10 @@ inline GrooveScene normalizedScene(GrooveScene scene) {
     scene.stepsPerBar = clampStepsPerBar(scene.stepsPerBar);
     scene.repeatsBeforeMutation = std::clamp(scene.repeatsBeforeMutation, 1, 64);
     scene.swing = std::clamp(scene.swing, 0.0f, 0.45f);
+    scene.noteVariation = std::clamp(scene.noteVariation, 0.0f, 1.0f);
     scene.mutationAmount = std::clamp(scene.mutationAmount, 0.0f, 1.0f);
+    scene.keyRoot = clampKeyRoot(scene.keyRoot);
+    scene.scaleMode = normalizedScaleMode(scene.scaleMode);
 
     if (scene.instruments.empty()) {
         scene.instruments = makeDefaultScene().instruments;

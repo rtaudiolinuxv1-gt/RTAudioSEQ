@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #include "ui/MainWindow.h"
 
 #include <algorithm>
@@ -24,8 +26,6 @@
 #include <QLayout>
 #include <QLineEdit>
 #include <QMessageBox>
-#include <QMediaPlayer>
-#include <QMediaContent>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QScrollArea>
@@ -34,9 +34,11 @@
 #include <QTabWidget>
 #include <QStringList>
 #include <QTimer>
-#include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include "preview/PreviewPlayer.h"
+#include "ui/WaveformView.h"
 
 namespace groove {
 
@@ -143,8 +145,11 @@ QJsonObject sceneToJson(const GrooveScene& scene) {
     object["stepsPerBar"] = scene.stepsPerBar;
     object["repeatsBeforeMutation"] = scene.repeatsBeforeMutation;
     object["swing"] = scene.swing;
+    object["noteVariation"] = scene.noteVariation;
     object["mutationAmount"] = scene.mutationAmount;
     object["mutationEnabled"] = scene.mutationEnabled;
+    object["keyRoot"] = scene.keyRoot;
+    object["scaleMode"] = static_cast<int>(scene.scaleMode);
     object["soundfontPath"] = QString::fromStdString(scene.soundfontPath);
     object["seed"] = static_cast<int>(scene.seed);
 
@@ -163,8 +168,11 @@ GrooveScene sceneFromJson(const QJsonObject& object) {
     scene.stepsPerBar = object["stepsPerBar"].toInt(scene.stepsPerBar);
     scene.repeatsBeforeMutation = object["repeatsBeforeMutation"].toInt(scene.repeatsBeforeMutation);
     scene.swing = static_cast<float>(object["swing"].toDouble(scene.swing));
+    scene.noteVariation = static_cast<float>(object["noteVariation"].toDouble(scene.noteVariation));
     scene.mutationAmount = static_cast<float>(object["mutationAmount"].toDouble(scene.mutationAmount));
     scene.mutationEnabled = object["mutationEnabled"].toBool(scene.mutationEnabled);
+    scene.keyRoot = object["keyRoot"].toInt(scene.keyRoot);
+    scene.scaleMode = static_cast<ScaleMode>(object["scaleMode"].toInt(static_cast<int>(scene.scaleMode)));
     scene.soundfontPath = object["soundfontPath"].toString().toStdString();
     scene.seed = static_cast<std::uint32_t>(object["seed"].toInt(static_cast<int>(scene.seed)));
 
@@ -258,7 +266,7 @@ void populatePresetCombo(QComboBox* combo, const std::vector<SoundFontPreset>& p
 
 MainWindow::MainWindow(GrooveController* controller, QWidget* parent)
     : QMainWindow(parent), controller_(controller) {
-    previewPlayer_ = new QMediaPlayer(this);
+    previewPlayer_ = new PreviewPlayer(this);
     buildUi();
     refreshFromScene();
     scheduleGridGeometryRefresh();
@@ -268,6 +276,9 @@ MainWindow::MainWindow(GrooveController* controller, QWidget* parent)
         controller_->tickAutomation();
         syncActiveBarToTransport();
         refreshFromScene();
+        if (waveformView_ != nullptr && previewPlayer_ != nullptr) {
+            waveformView_->setPlayhead(controller_->previewPositionMs(), controller_->previewDurationMs());
+        }
     });
     timer_->start(50);
 }
@@ -323,6 +334,10 @@ void MainWindow::buildUi() {
     auto* regenerateButton = new QPushButton("Regenerate");
     auto* mutateButton = new QPushButton("Mutate Now");
     bpmSpin_ = new QSpinBox();
+    keyRootCombo_ = new QComboBox();
+    populateKeyRootCombo(keyRootCombo_);
+    scaleModeCombo_ = new QComboBox();
+    populateScaleModeCombo(scaleModeCombo_);
     bpmSpin_->setRange(40, 220);
     patternBarsSpin_ = new QSpinBox();
     patternBarsSpin_->setRange(kMinPatternBars, kMaxPatternBars);
@@ -336,6 +351,8 @@ void MainWindow::buildUi() {
     mutationEnabledCheck_ = new QCheckBox("Enable Mutation");
     swingSlider_ = new QSlider(Qt::Horizontal);
     swingSlider_->setRange(0, 45);
+    noteVariationSlider_ = new QSlider(Qt::Horizontal);
+    noteVariationSlider_->setRange(0, 100);
     mutationSlider_ = new QSlider(Qt::Horizontal);
     mutationSlider_->setRange(0, 100);
 
@@ -356,8 +373,14 @@ void MainWindow::buildUi() {
     controlLayout->addWidget(repeatSpin_, 3, 1);
     controlLayout->addWidget(new QLabel("Swing"), 3, 2);
     controlLayout->addWidget(swingSlider_, 3, 3);
-    controlLayout->addWidget(new QLabel("Mutation Amount"), 4, 0);
-    controlLayout->addWidget(mutationSlider_, 4, 1, 1, 3);
+    controlLayout->addWidget(new QLabel("Note Variation"), 4, 0);
+    controlLayout->addWidget(noteVariationSlider_, 4, 1, 1, 3);
+    controlLayout->addWidget(new QLabel("Mutation Amount"), 5, 0);
+    controlLayout->addWidget(mutationSlider_, 5, 1, 1, 3);
+    controlLayout->addWidget(new QLabel("Key"), 6, 0);
+    controlLayout->addWidget(keyRootCombo_, 6, 1);
+    controlLayout->addWidget(new QLabel("Scale"), 6, 2);
+    controlLayout->addWidget(scaleModeCombo_, 6, 3);
     performanceLayout->addWidget(controlBox);
 
     auto* instrumentAddBox = new QGroupBox("Instruments");
@@ -406,11 +429,15 @@ void MainWindow::buildUi() {
     exportSecondsSpin_->setSingleStep(1.0);
     renderBarsWavButton_ = new QPushButton("Render WAV By Bars");
     renderSecondsWavButton_ = new QPushButton("Render WAV By Seconds");
+    loadPreviewButton_ = new QPushButton("Load WAV/FLAC");
     previewFileLabel_ = new QLabel("No preview file loaded");
+    previewVolumeLabel_ = new QLabel("0 dB");
     previewPlayButton_ = new QPushButton("Play");
     previewStopButton_ = new QPushButton("Stop");
     previewRewindButton_ = new QPushButton("RW");
     previewForwardButton_ = new QPushButton("FF");
+    previewVolumeSlider_ = new QSlider(Qt::Horizontal);
+    previewVolumeSlider_->setRange(-24, 18);
     recordingLayout->addWidget(recordWavButton_, 0, 0);
     recordingLayout->addWidget(recordFlacButton_, 0, 1);
     recordingLayout->addWidget(stopRecordButton_, 0, 2);
@@ -422,10 +449,16 @@ void MainWindow::buildUi() {
     recordingLayout->addWidget(renderSecondsWavButton_, 2, 2);
     recordingLayout->addWidget(new QLabel("Preview File"), 3, 0);
     recordingLayout->addWidget(previewFileLabel_, 3, 1, 1, 2);
+    recordingLayout->addWidget(loadPreviewButton_, 3, 3);
     recordingLayout->addWidget(previewRewindButton_, 4, 0);
     recordingLayout->addWidget(previewPlayButton_, 4, 1);
     recordingLayout->addWidget(previewStopButton_, 4, 2);
     recordingLayout->addWidget(previewForwardButton_, 4, 3);
+    recordingLayout->addWidget(new QLabel("Preview Gain"), 5, 0);
+    recordingLayout->addWidget(previewVolumeSlider_, 5, 1, 1, 2);
+    recordingLayout->addWidget(previewVolumeLabel_, 5, 3);
+    waveformView_ = new WaveformView(recordingBox);
+    recordingLayout->addWidget(waveformView_, 6, 0, 1, 4);
     exportTabLayout->addWidget(recordingBox);
 
     auto* editorScroll = new QScrollArea();
@@ -543,8 +576,20 @@ void MainWindow::buildUi() {
     connect(swingSlider_, &QSlider::valueChanged, this, [this](int value) {
         controller_->setSwing(static_cast<float>(value) / 100.0f);
     });
+    connect(noteVariationSlider_, &QSlider::valueChanged, this, [this](int value) {
+        controller_->setNoteVariation(static_cast<float>(value) / 100.0f);
+        refreshFromScene();
+    });
     connect(mutationSlider_, &QSlider::valueChanged, this, [this](int value) {
         controller_->setMutationAmount(static_cast<float>(value) / 100.0f);
+    });
+    connect(keyRootCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int index) {
+        controller_->setKeyRoot(keyRootCombo_->itemData(index).toInt());
+        refreshFromScene();
+    });
+    connect(scaleModeCombo_, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int index) {
+        controller_->setScaleMode(static_cast<ScaleMode>(scaleModeCombo_->itemData(index).toInt()));
+        refreshFromScene();
     });
     connect(addInstrumentButton_, &QPushButton::clicked, this, [this]() {
         const QString proposedName = newInstrumentNameEdit_->text().trimmed();
@@ -592,16 +637,35 @@ void MainWindow::buildUi() {
         if (previewPath_.isEmpty()) {
             return;
         }
-        previewPlayer_->play();
+        controller_->playPreview();
+        if (waveformView_ != nullptr) {
+            waveformView_->setPlayhead(controller_->previewPositionMs(), controller_->previewDurationMs());
+        }
     });
     connect(previewStopButton_, &QPushButton::clicked, this, [this]() {
-        previewPlayer_->stop();
+        controller_->stopPreview();
+        if (waveformView_ != nullptr) {
+            waveformView_->setPlayhead(controller_->previewPositionMs(), controller_->previewDurationMs());
+        }
     });
     connect(previewRewindButton_, &QPushButton::clicked, this, [this]() {
         seekPreview(-5000);
     });
     connect(previewForwardButton_, &QPushButton::clicked, this, [this]() {
         seekPreview(5000);
+    });
+    connect(loadPreviewButton_, &QPushButton::clicked, this, [this]() {
+        const QString filePath = QFileDialog::getOpenFileName(this, "Load Preview File", QString(), "Audio Files (*.wav *.flac)");
+        if (filePath.isEmpty()) {
+            return;
+        }
+        setPreviewFile(filePath);
+        lastMessage_ = QString("Loaded preview %1").arg(QFileInfo(filePath).fileName());
+        refreshFromScene();
+    });
+    connect(previewVolumeSlider_, &QSlider::valueChanged, this, [this](int value) {
+        controller_->setPreviewGainDb(static_cast<float>(value));
+        previewVolumeLabel_->setText(QString("%1 dB").arg(value));
     });
 
     setCentralWidget(central);
@@ -1014,6 +1078,33 @@ void MainWindow::populateRoleCombo(QComboBox* combo) const {
     combo->addItem("Custom", static_cast<int>(InstrumentRole::Custom));
 }
 
+void MainWindow::populateKeyRootCombo(QComboBox* combo) const {
+    combo->clear();
+    for (int keyRoot = 0; keyRoot < 12; ++keyRoot) {
+        combo->addItem(keyRootName(keyRoot), keyRoot);
+    }
+}
+
+void MainWindow::populateScaleModeCombo(QComboBox* combo) const {
+    combo->clear();
+    combo->addItem(scaleModeName(ScaleMode::Chromatic), static_cast<int>(ScaleMode::Chromatic));
+    combo->addItem(scaleModeName(ScaleMode::Major), static_cast<int>(ScaleMode::Major));
+    combo->addItem(scaleModeName(ScaleMode::NaturalMinor), static_cast<int>(ScaleMode::NaturalMinor));
+    combo->addItem(scaleModeName(ScaleMode::Dorian), static_cast<int>(ScaleMode::Dorian));
+    combo->addItem(scaleModeName(ScaleMode::Mixolydian), static_cast<int>(ScaleMode::Mixolydian));
+    combo->addItem(scaleModeName(ScaleMode::PentatonicMajor), static_cast<int>(ScaleMode::PentatonicMajor));
+    combo->addItem(scaleModeName(ScaleMode::PentatonicMinor), static_cast<int>(ScaleMode::PentatonicMinor));
+}
+
+int MainWindow::scaleModeComboIndex(ScaleMode scaleMode) const {
+    for (int index = 0; index < scaleModeCombo_->count(); ++index) {
+        if (scaleModeCombo_->itemData(index).toInt() == static_cast<int>(scaleMode)) {
+            return index;
+        }
+    }
+    return 0;
+}
+
 InstrumentRole MainWindow::roleFromCombo(const QComboBox* combo) const {
     return static_cast<InstrumentRole>(combo->currentData().toInt());
 }
@@ -1054,15 +1145,21 @@ void MainWindow::refreshFromScene() {
     }
 
     bpmSpin_->blockSignals(true);
+    keyRootCombo_->blockSignals(true);
+    scaleModeCombo_->blockSignals(true);
     patternBarsSpin_->blockSignals(true);
     stepsPerBarSpin_->blockSignals(true);
     editBarSpin_->blockSignals(true);
     repeatSpin_->blockSignals(true);
     mutationEnabledCheck_->blockSignals(true);
     swingSlider_->blockSignals(true);
+    noteVariationSlider_->blockSignals(true);
     mutationSlider_->blockSignals(true);
+    previewVolumeSlider_->blockSignals(true);
 
     bpmSpin_->setValue(scene.bpm);
+    keyRootCombo_->setCurrentIndex(scene.keyRoot);
+    scaleModeCombo_->setCurrentIndex(scaleModeComboIndex(scene.scaleMode));
     patternBarsSpin_->setValue(scene.patternBars);
     stepsPerBarSpin_->setValue(scene.stepsPerBar);
     editBarSpin_->setMaximum(scene.patternBars);
@@ -1075,17 +1172,24 @@ void MainWindow::refreshFromScene() {
     repeatSpin_->setValue(scene.repeatsBeforeMutation);
     mutationEnabledCheck_->setChecked(scene.mutationEnabled);
     swingSlider_->setValue(static_cast<int>(scene.swing * 100.0f));
+    noteVariationSlider_->setValue(static_cast<int>(scene.noteVariation * 100.0f));
     mutationSlider_->setValue(static_cast<int>(scene.mutationAmount * 100.0f));
+    previewVolumeSlider_->setValue(static_cast<int>(controller_->previewGainDb()));
+    previewVolumeLabel_->setText(QString("%1 dB").arg(previewVolumeSlider_->value()));
     soundfontLabel_->setText(soundfontLabelText(scene.soundfontPath));
 
     bpmSpin_->blockSignals(false);
+    keyRootCombo_->blockSignals(false);
+    scaleModeCombo_->blockSignals(false);
     patternBarsSpin_->blockSignals(false);
     stepsPerBarSpin_->blockSignals(false);
     editBarSpin_->blockSignals(false);
     repeatSpin_->blockSignals(false);
     mutationEnabledCheck_->blockSignals(false);
     swingSlider_->blockSignals(false);
+    noteVariationSlider_->blockSignals(false);
     mutationSlider_->blockSignals(false);
+    previewVolumeSlider_->blockSignals(false);
 
     const int barOffset = currentEditBarIndex() * scene.stepsPerBar;
     for (int instrumentIndex = 0; instrumentIndex < static_cast<int>(scene.instruments.size()); ++instrumentIndex) {
@@ -1193,12 +1297,14 @@ void MainWindow::updateStatus() {
 
     QStringList parts;
     parts << QString("Tempo %1 BPM").arg(scene.bpm)
+          << QString("Key %1 %2").arg(keyRootName(scene.keyRoot), scaleModeName(scene.scaleMode))
           << QString("Pattern %1 bar(s)").arg(scene.patternBars)
           << QString("Grid %1 step(s)/bar").arg(scene.stepsPerBar)
           << QString("Edit bar %1").arg(editBarSpin_->value())
           << QString("Instruments %1").arg(scene.instruments.size())
           << QString("Mutate every %1 loop(s)").arg(scene.repeatsBeforeMutation)
           << QString("Swing %1%").arg(static_cast<int>(scene.swing * 100.0f))
+          << QString("Note variation %1%").arg(static_cast<int>(scene.noteVariation * 100.0f))
           << QString("Mutation %1%").arg(static_cast<int>(scene.mutationAmount * 100.0f))
           << (scene.mutationEnabled ? "Mutation on" : "Mutation off")
           << soundfontLabelText(scene.soundfontPath);
@@ -1328,6 +1434,7 @@ void MainWindow::loadSampleForInstrument(int instrumentIndex) {
         return;
     }
 
+    setPreviewFile(filePath);
     lastMessage_ = QString("Loaded sample %1").arg(QFileInfo(filePath).fileName());
     refreshFromScene();
 }
@@ -1335,23 +1442,40 @@ void MainWindow::loadSampleForInstrument(int instrumentIndex) {
 void MainWindow::setPreviewFile(const QString& path) {
     previewPath_ = path;
     if (previewPath_.isEmpty()) {
-        previewPlayer_->stop();
-        previewPlayer_->setMedia(QMediaContent());
+        controller_->stopPreview();
         previewFileLabel_->setText("No preview file loaded");
+        if (waveformView_ != nullptr) {
+            waveformView_->setSample(nullptr);
+            waveformView_->setPlayhead(0, 0);
+        }
         return;
     }
 
-    previewPlayer_->stop();
-    previewPlayer_->setMedia(QMediaContent(QUrl::fromLocalFile(previewPath_)));
+    if ((previewPlayer_->loadFile(previewPath_.toStdString()) == false) || (controller_->loadPreview(previewPath_.toStdString()) == false)) {
+        previewPath_.clear();
+        previewFileLabel_->setText("Could not load preview file");
+        if (waveformView_ != nullptr) {
+            waveformView_->setSample(nullptr);
+            waveformView_->setPlayhead(0, 0);
+        }
+        return;
+    }
+
     previewFileLabel_->setText(QFileInfo(previewPath_).fileName());
+    if (waveformView_ != nullptr) {
+        waveformView_->setSample(&previewPlayer_->sample());
+        waveformView_->setPlayhead(controller_->previewPositionMs(), controller_->previewDurationMs());
+    }
 }
 
 void MainWindow::seekPreview(qint64 deltaMs) {
     if (previewPath_.isEmpty()) {
         return;
     }
-    const qint64 newPosition = std::max<qint64>(0, previewPlayer_->position() + deltaMs);
-    previewPlayer_->setPosition(newPosition);
+    controller_->seekPreview(deltaMs);
+    if (waveformView_ != nullptr) {
+        waveformView_->setPlayhead(controller_->previewPositionMs(), controller_->previewDurationMs());
+    }
 }
 
 void MainWindow::loadSoundfontFile() {

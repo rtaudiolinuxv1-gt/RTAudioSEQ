@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 
 #include <vector>
@@ -17,7 +19,6 @@ class QGridLayout;
 class QLabel;
 class QLayout;
 class QLineEdit;
-class QMediaPlayer;
 class QPushButton;
 class QScrollArea;
 class QSlider;
@@ -29,6 +30,9 @@ class QResizeEvent;
 QT_END_NAMESPACE
 
 namespace groove {
+
+class PreviewPlayer;
+class WaveformView;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -69,6 +73,9 @@ private:
     void updateVirtualKeyboard();
     void applySelectedStepNote(int midiNote);
     void shiftSelectedKeyboardOctave(int delta);
+    void populateKeyRootCombo(QComboBox* combo) const;
+    void populateScaleModeCombo(QComboBox* combo) const;
+    int scaleModeComboIndex(ScaleMode scaleMode) const;
     void populateRoleCombo(QComboBox* combo) const;
     InstrumentRole roleFromCombo(const QComboBox* combo) const;
     int roleComboIndex(InstrumentRole role) const;
@@ -104,6 +111,7 @@ private:
     QPushButton* stopRecordButton_ = nullptr;
     QPushButton* renderBarsWavButton_ = nullptr;
     QPushButton* renderSecondsWavButton_ = nullptr;
+    QPushButton* loadPreviewButton_ = nullptr;
     QPushButton* previewPlayButton_ = nullptr;
     QPushButton* previewStopButton_ = nullptr;
     QPushButton* previewForwardButton_ = nullptr;
@@ -112,9 +120,12 @@ private:
     QPushButton* clearSoundfontButton_ = nullptr;
     QPushButton* addInstrumentButton_ = nullptr;
     QLabel* previewFileLabel_ = nullptr;
+    QLabel* previewVolumeLabel_ = nullptr;
     QLabel* soundfontLabel_ = nullptr;
     QLineEdit* newInstrumentNameEdit_ = nullptr;
     QComboBox* newInstrumentRoleCombo_ = nullptr;
+    QComboBox* keyRootCombo_ = nullptr;
+    QComboBox* scaleModeCombo_ = nullptr;
     QSpinBox* bpmSpin_ = nullptr;
     QSpinBox* patternBarsSpin_ = nullptr;
     QSpinBox* stepsPerBarSpin_ = nullptr;
@@ -124,7 +135,9 @@ private:
     QDoubleSpinBox* exportSecondsSpin_ = nullptr;
     QCheckBox* mutationEnabledCheck_ = nullptr;
     QSlider* swingSlider_ = nullptr;
+    QSlider* noteVariationSlider_ = nullptr;
     QSlider* mutationSlider_ = nullptr;
+    QSlider* previewVolumeSlider_ = nullptr;
     QWidget* instrumentEditorWidget_ = nullptr;
     QVBoxLayout* instrumentEditorLayout_ = nullptr;
     QScrollArea* stepScrollArea_ = nullptr;
@@ -135,7 +148,8 @@ private:
     QPushButton* octaveDownButton_ = nullptr;
     QPushButton* octaveUpButton_ = nullptr;
     std::vector<QPushButton*> keyboardNoteButtons_;
-    QMediaPlayer* previewPlayer_ = nullptr;
+    WaveformView* waveformView_ = nullptr;
+    PreviewPlayer* previewPlayer_ = nullptr;
     QString previewPath_;
     QString lastMessage_;
     std::vector<InstrumentWidgets> instrumentWidgets_;

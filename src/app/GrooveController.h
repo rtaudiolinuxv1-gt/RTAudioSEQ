@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 #pragma once
 
 #include <string>
@@ -30,6 +32,9 @@ public:
     void setStepsPerBar(int stepsPerBar);
     void setRepeatsBeforeMutation(int repeats);
     void setSwing(float swing);
+    void setKeyRoot(int keyRoot);
+    void setScaleMode(ScaleMode scaleMode);
+    void setNoteVariation(float noteVariation);
     void setMutationEnabled(bool enabled);
     void setMutationAmount(float mutationAmount);
     void setInstrumentDensity(int instrumentIndex, float density);
@@ -45,6 +50,14 @@ public:
     bool loadSoundfont(const std::string& path);
     void clearSoundfont();
     std::vector<SoundFontPreset> soundfontPresets() const;
+    bool loadPreview(const std::string& path);
+    void playPreview();
+    void stopPreview();
+    void seekPreview(std::int64_t deltaMs);
+    std::int64_t previewPositionMs() const;
+    std::int64_t previewDurationMs() const;
+    void setPreviewGainDb(float gainDb);
+    float previewGainDb() const;
 
     bool exportWavBars(const std::string& path, int bars) const;
     bool exportWavSeconds(const std::string& path, double seconds) const;
